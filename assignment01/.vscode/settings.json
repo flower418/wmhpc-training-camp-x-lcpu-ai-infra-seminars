@@ -1,0 +1,21 @@
+{
+    "C_Cpp.default.compilerPath": "/usr/local/cuda/bin/nvcc",
+    "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/cuda",
+        "/usr/local/cuda/include",
+        "/usr/include",
+        "/usr/include/x86_64-linux-gnu"
+    ],
+    "files.associations": {
+        "*.cu": "cuda-cpp",
+        "*.cuh": "cuda-cpp",
+        "cuda_runtime.h": "cpp"
+    },
+    "terminal.integrated.env.linux": {
+        "PATH": "/usr/local/cuda/bin:${env:PATH}"
+    },
+    "C_Cpp.errorSquiggles": "enabled",
+    "C_Cpp.intelliSenseEngine": "default"
+}

@@ -2,16 +2,13 @@
 assignment*/docs/
 
 # Private AI-assistant context.
-# The committed CLAUDE.md / AGENTS.md are public, student-facing AI-usage
-# guidelines (CS336-style); everything below is local dev context.
 CLAUDE.local.md
 .claude/
 .cursor/
 .aider*
 .windsurf/
 
-# LaTeX build artifacts (the copy at assignment*/assignment*.pdf is committed;
-# the duplicate inside handout/ build dirs is not)
+# LaTeX build artifacts
 assignment*/handout/*.pdf
 *.aux
 *.bbl
@@ -34,6 +31,12 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+
+# Editor metadata (project configuration remains trackable)
+.vscode/*.log
+.vscode/.ropeproject/
 
 # CUDA build artifacts
 assignment*/cuda/bin/
@@ -45,6 +48,8 @@ assignment*/cuda/bin/
 
 # Misc
 .DS_Store
+*.swp
+*.swo
 
 # User notes
 cof.md
