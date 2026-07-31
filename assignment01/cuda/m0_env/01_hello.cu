@@ -6,6 +6,8 @@ __global__ void hello() {
     printf("hello from block %d, thread %d\n", blockIdx.x, threadIdx.x);
 }
 
+// kernel<<<gridDim, blockDim>>>(...)
+// gridDim 表示启动了几个 block，blockDim 表示一个 block 里有几个 thread
 int main() {
     hello<<<4, 8>>>();
     CUDA_CHECK_KERNEL();
