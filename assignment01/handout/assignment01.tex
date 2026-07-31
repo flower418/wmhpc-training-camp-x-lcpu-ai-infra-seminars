@@ -32,6 +32,10 @@
   xleftmargin=4pt, xrightmargin=4pt,
 }
 \usepackage{hyperref}
+\usepackage{xparse}
+\ExplSyntaxOn
+\cs_new_protected:Npn \IfBlankF #1#2 { \tl_if_blank:nF {#1} {#2} }
+\ExplSyntaxOff
 \hypersetup{colorlinks, linkcolor=accent, urlcolor=accent}
 \emergencystretch=3em
 
@@ -142,12 +146,13 @@ make run/m0_env/02_device_query
 \toprule
 项目 & 你的卡 \\
 \midrule
-型号 / compute capability & \\
-SM 数量 & \\
-warp 大小 & \\
-shared memory / block & \\
-最大常驻线程 / SM & \\
-显存总量 & \\
+型号 / compute capability & NVIDIA GeForce RTX 4090/8.9\\
+SM 数量 & 128\\
+warp 大小 & 32\\
+shared memory / block & 101376\\
+最大常驻线程 / SM & 1536\\
+显存总量 & 25386352640\\
+最大线程 / block & 1024\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -171,13 +176,18 @@ Guide 1.1、1.2.1--1.2.2；LCPU 讲义\footnote{\url{https://github.com/interest
 判断对错，可以顺带补一句理由。
 \begin{enumerate}[label=(\alph*)]
   \item 一块标称 100 TFLOPS 的 GPU，执行单条指令的延迟一定低于 5 GHz 的 CPU。
+  \par\noindent\textit{回答：}错误。100 TFLOPS 只表示它能在 $1\,\mathrm{s}$ 完成 $10^{14}$ 次计算，可能来自大量 thread 的并行；每个 thread 的频率未必高于 5 GHz 的 CPU。因此若只执行单条指令，GPU 的延迟仍可能高于 CPU。
   \item HBM 的“高带宽”指大块连续访问时的吞吐，零散的随机访问达不到标称值。
+  \par\noindent\textit{回答：}正确。HBM（High Bandwidth Memory）在连续、大块且并发足够的访问下，吞吐可能接近标称值；零散随机访问会因延迟、请求粒度和并发不足而使实际吞吐大幅下降。
   \item 严格串行的迭代算法（每步依赖上一步的结果），即使换一块算力更强的 GPU 也快不了多少。
+  \par\noindent\textit{回答：}正确。如果算法严格串行，那就无法利用 GPU 的并发优势，只能一条指令一条指令的执行，瓶颈就在于单个指令的计算速度。而 GPU 算力的提升对频率影响不大，并不能快多少
   \item “算力 1000 TFLOPS”意味着每次运算的延迟是 $10^{-15}$ 秒。
+  \par\noindent\textit{回答：}错误。TFLOPS 指 tera floating-point operations per second，指的是 1s 能执行 $10^{12}$ 次浮点计算，而不是指每次运算的延迟，算力的提升更多来自 thread 数的增多
 \end{enumerate}
 
 \prob{1.2}{CONCEPT}
 Session 1 讲座里提过“N 方过百万”这个例子。总计算量 $10^{12}$ FLOP 在当代 GPU 上的运算时间大概是毫秒级，那为什么一个严格在线的串行算法仍然做不到几秒内跑完？（从“延迟”和“吞吐”的角度考虑）
+\par\noindent\textit{回答：}首先 GPU 的吞吐是很大的，它可以同时进行大量计算，但是对于单条指令的执行，它并没有像 CPU 一样快。所以如果是严格串行，那么 $10^{12}$ FLOP 的计算量需要串行一条一条执行，相比 CPU 就会慢很多。GPU 是高吞吐，单条指令延迟较高。而串行算法会使 GPU 的吞吐降低，单条指令的延迟基本不变，所以串行算法要跑很久
 
 \prob{1.3}{CONCEPT}
 补全下表（thread 一行已填好作为示例）
@@ -188,15 +198,17 @@ Session 1 讲座里提过“N 方过百万”这个例子。总计算量 $10^{12
 执行层次 & 软件含义 & 对应硬件 & 直接可用的存储 & 同步与通信手段 \\
 \midrule
 thread & kernel 的最小执行单位 & 计算单元上的一个 lane & 自己的寄存器 & （自身天然有序） \\
-warp &  &  &  &  \\
-block / CTA &  &  &  &  \\
-grid &  &  &  &  \\
+warp & 32 个按同一调度单位执行的 thread & 同一组 32 个 lane & 各 thread 的寄存器 & 1 个 warp 内部的所有 thread 可以通信，不同 warp 之间的 thread 不可以通信 \\
+block/CTA & 可合作完成一个任务的一组 thread & 同一时刻驻留在一个 SM 上的多个 warp & shared memory，每个 thread 的寄存器 & 同一个 block 内的 thread 可以通信，不同 block 之间的 thread 不行 \\
+grid & 一次 kernel 启动产生的全部 blocks & 分布到多个 SM 上 & global memory & 一个 grid 之间很难通信 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \prob{1.4}{CONCEPT}
 SIMD 与 SIMT 的区别？另：判断正误——Nvidia GPU 在 Volta 之后每个线程有独立的 program counter，所以 branch divergence 不再有性能代价。
+\par\noindent\textit{回答：}SIMD 是 single instruction multiple data，SIMT 是 single instruction multiple threads。SIMD 中并行主要针对 data，一条指令下，同时处理多个 data 达到并行。而 SIMT 是针对的多个 thread。一条 kernel 下，多个 thread 可以并行执行 kernel 代码，每个 thread 各自拥有寄存器和数据 \\
+独立 PC 可以让 scheduler 更精细地调度 thread，但 branch divergence 本质上是并行度的降低，硬件并不会因为独立 PC 而增多，一部分 thread 执行时，另一部分 thread 会被 mask 掉，导致部分 thread 无法工作，仍然有性能开销
 
 \prob{1.5}{EXPERIMENT}[cuda/m1\_why\_gpu/01\_scaling.cu]
 同一个向量加法，四种配置各跑一遍。
@@ -207,16 +219,18 @@ make run/m1_why_gpu/01_scaling
 \end{lstlisting}
 
 将数据填入下表，并回答：(a)~GPU 单线程为什么比 CPU 慢这么多？(b)~从单 block 到铺满 grid 的提速，说明 GPU 加速计算靠的是什么？
+\par\noindent\textit{回答：}(a)因为 GPU 的算力优势主要来自于大量的并行计算，而单个 thread 的频率远低于 CPU，所以导致 GPU 单线程极慢 \\
+(b)靠的是大量的 thread 并行计算，而不是单个 thread 的计算优势
 
 \begin{center}\small
 \begin{tabular}{@{}lll@{}}
 \toprule
 配置 & 耗时 (ms) & ns / 元素 \\
 \midrule
-CPU 单线程 & & \\
-GPU \texttt{<<<1,1>>>} & & \\
-GPU \texttt{<<<1,256>>>} & & \\
-GPU 铺满 grid & & \\
+CPU 单线程 & 9.603ms & 2.29ns/elem\\
+GPU \texttt{<<<1,1>>>} & 135.558ms & 32.32ns/elem\\
+GPU \texttt{<<<1,256>>>} & 2.245ms & 0.54ns/elem\\
+GPU 铺满 grid & 0.023ms & 0.01ns/elem\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -256,10 +270,15 @@ make run/m2_first_kernel/01_vector_add
 为下列五个场景选择正确的修饰符（如 \texttt{\_\_global\_\_} 等）。
 \begin{enumerate}[label=(\alph*)]
   \item 在 GPU 上执行、由 CPU 侧启动的 kernel 函数。
+  \par\noindent\textit{回答：}\texttt{\_\_global\_\_}
   \item 只会被 kernel 调用的辅助函数。
+  \par\noindent\textit{回答：}\texttt{\_\_device\_\_}
   \item host 和 device 代码都要调用的小工具函数。
+  \par\noindent\textit{回答：}\texttt{\_\_host\_\_ \_\_device\_\_}
   \item 整个 kernel 运行期间不变、所有线程都要读的系数表。
+  \par\noindent\textit{回答：}\texttt{\_\_constant\_\_}
   \item block 内线程共享的暂存数组。
+  \par\noindent\textit{回答：}\texttt{\_\_shared\_\_}
 \end{enumerate}
 
 \prob{2.3}{MODIFY}[cuda/m2\_first\_kernel/02\_vector\_add\_um.cu]
@@ -271,22 +290,28 @@ make run/m2_first_kernel/02_vector_add_um
 \end{lstlisting}
 
 然后请回答如下问题：(a)~kernel 启动之后、CPU 读结果之前，为什么必须有一次同步？在原先的版本里这次同步发生在哪个调用里？(b)~对比两版“搬运 + kernel + 读回”的耗时，分析差距的原因（谁快谁慢都有可能，与使用的卡有关）。
-
+\par\noindent\textit{回答：}(a)因为 GPU 和 CPU 是异步的，必须等待 GPU 上的 kernel 执行完成后才能讲数据搬回 CPU。如果 GPU 上的 thread 还没执行完就读回，会发生 UB，所以必须要有一次同步，使 thread 全部执行完。原先版本中同步发生在调用 CUDA\_CHECK\_KERNEL() 中 \\
+(b)第一版本的耗时为 90ms 左右，第二版本的耗时为 70ms 左右，第二版性能有微弱提升。差距主要来自第二版没有了搬运+读回，在 CPU，GPU 之间切换的性能开销。因为他们用的是 unified memory，所以 kernel 能直接在内存上读写，所以性能稍好
 \prob{2.4}{CONCEPT}
 判断对错，可以顺带补一句理由。
 \begin{enumerate}[label=(\alph*)]
   \item \texttt{vectorAdd<<<...>>>(...)} 这条语句返回时，kernel 一定已经执行完毕。
+  \par\noindent\textit{回答：}错误。kernel 启动是异步的，当语句返回时，只表示 kernel 发射给了 GPU，但是不代表已经返回，还需要后续的 synchronize
   \item 同一个 stream 里，\texttt{cudaMemcpy}（device 到 host）会等它前面的 kernel 全部完成后才开始拷贝。
+  \par\noindent\textit{回答：}正确。在同一个 stream 内操作按顺序执行，cudaMemcpy 会等 kernel 结束后再执行，且 CPU 本身对 cudaMemcpy 也是阻塞的
   \item kernel 内部的非法访存，会在启动语句处同步地报出来。
+  \par\noindent\textit{回答：}错误。错误的报出是异步的，在 CPU 向 GPU 发射 kernel 之后，CPU 会继续执行，当 GPU 进行 synchronize 的时候，才会报出错误
 \end{enumerate}
 
 \prob{2.5}{DEBUG}[cuda/m2\_first\_kernel/03\_bug\_launch.cu]
-修 bug：\texttt{03\_bug\_launch.cu}，详细内容见相关文件。
+修 bug：\texttt{03\_bug\_launch.cu}，详细内容见相关文件。\\
 
 \begin{lstlisting}
 cd assignment01/cuda
 make run/m2_first_kernel/03_bug_launch
 \end{lstlisting}
+在 4090 上，每个 block 的最大线程为 1024，但是每个 block 内分配了 2048 个 thread，导致无法分配，所以会有 invalid configuration argument\\
+不加 CUDA\_CHECK\_KERNEL 时，由于 GPU 的执行与 CPU 是异步的，所以 CPU 并不会发现 GPU 上 kernel 的执行异常，所以不会报出错误
 
 \prob{2.6}{FILL-IN}[cuda/m2\_first\_kernel/04\_matrix\_add.cu]
 \texttt{04\_matrix\_add.cu} 用二维的 block 和 grid 处理 $1000 \times 700$ 的矩阵，请填空实现矩阵加法。测试命令：
@@ -304,7 +329,8 @@ cd assignment01/cuda
 make run/m2_first_kernel/05_grid_stride
 \end{lstlisting}
 
-然后请回答——这种写法的价值在哪里？launch 只有 16384 个线程时，性能上要付出什么代价？
+然后请回答——这种写法的价值在哪里？launch 只有 16384 个线程时，性能上要付出什么代价？\\
+这种写法的价值在于，无论有多大的数据都能处理，不会有 thread 数不够的瓶颈。性能上的代价是如果开的线程数不够的话，处理大数据，每个线程会出现串行执行的情况，性能会下降
 
 \prob{2.8}{EXPERIMENT}[cuda/m2\_first\_kernel/06\_whoami.cu]
 运行下面的程序两三次，观察 16 个 block 打印输出的先后。
@@ -314,7 +340,9 @@ cd assignment01/cuda
 make run/m2_first_kernel/06_whoami
 \end{lstlisting}
 
-(a)~顺序由谁决定？(b)~程序的正确性可以依赖 block 的执行顺序吗？这条限制和 Guide 1.1 说的 scalable programming model 有什么关系？
+(a)~顺序由谁决定？(b)~程序的正确性可以依赖 block 的执行顺序吗？这条限制和 Guide 1.1 说的 scalable programming model 有什么关系？\\
+\par\noindent\textit{回答：}(a)顺序由 GPU 的调度决定，并没有严格的顺序，也就是说每个 block 的执行时机是不确定的\\
+(b)如果不同 block 之间没有依赖关系，那么程序正确性就跟 block 的执行顺序无关。但是如果 block 之间有依赖关系，那么程序正确性就不能依赖 block 地执行顺序。他跟 scalable programming model 的关系是：只有并行的 block 之间没有依赖以后，才能将计算 scaling
 
 \begin{capstone}{prob 2.9（FROM-SCRATCH）：SAXPY \hfill {\footnotesize\ttfamily cuda/m2\_first\_kernel/saxpy.cu}}
 在 \texttt{m2\_first\_kernel/} 下写出完整的 CUDA 程序 \texttt{saxpy.cu}，实现 $y \leftarrow 2.0 \cdot x + y$（单精度）。要求如下:
