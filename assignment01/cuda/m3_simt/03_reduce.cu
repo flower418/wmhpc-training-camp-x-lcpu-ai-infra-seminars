@@ -39,11 +39,69 @@
 #define BLOCK 256
 
 __global__ void reduce_interleaved(const float *in, float *out) {
-    // TODO：从这里开始写（交错配对版本）
+    __shared__ float buf[BLOCK]; // 数组长度必须在编译期就确定，需要用宏常量
+    int tid = blockIdx.x*blockDim.x + threadIdx.x;
+    buf[threadIdx.x] = in[tid];
+    __syncthreads(); // 一定要 sync，防止读写冲突
+
+    for (int s = 1; s < blockDim.x; s <<= 1) {
+        if (threadIdx.x % (2*s) == 0) {
+            buf[threadIdx.x] += buf[threadIdx.x+s];
+        }
+        __syncthreads();
+    }
+
+    // 最后只有 thread0 才能写入 out
+    if (threadIdx.x == 0) {
+        out[blockIdx.x] = buf[threadIdx.x];
+    }
 }
 
 __global__ void reduce_contiguous(const float *in, float *out) {
-    // TODO：从这里开始写（连续配对版本）
+    __shared__ float buf[BLOCK];
+    int tid = blockIdx.x*blockDim.x + threadIdx.x;
+    buf[threadIdx.x] = in[tid];
+    __syncthreads();
+
+    for (int s = blockDim.x/2; s >= 1; s >>= 1) {
+        if (threadIdx.x < s) {
+            buf[threadIdx.x] += buf[threadIdx.x+s];
+        }
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0) {
+        out[blockIdx.x] = buf[threadIdx.x];
+    }
+}
+
+// 由于一个 warp 内的 thread 可以直接同步，所以可以当 block 里只剩一个 warp 时，可以直接 reduce
+__global__ void reduce_optimization(const float* in, float* out) {
+    __shared__ float buf[BLOCK];
+    int tid = blockIdx.x*blockDim.x + threadIdx.x;
+    buf[threadIdx.x] = in[tid];
+    __syncthreads();
+
+    for (int s = blockDim.x/2;  s >= 32; s >>= 1) {
+        if (threadIdx.x < s) {
+            buf[threadIdx.x] += buf[threadIdx.x+s];
+        }
+        __syncthreads();
+    }
+
+    // 此时所有 thread 都在同一个 warp 里，直接用 shfl_down_sync 进行 reduce
+    float val = 0.0f;
+    unsigned mask = 0xffffffff;
+    if (threadIdx.x < 32) {
+        val = buf[threadIdx.x];
+        for (int offset = 16; offset >= 1; offset >>= 1) {
+            val += __shfl_down_sync(mask, val, offset);
+        }
+    }
+    
+    if (threadIdx.x == 0) {
+        out[blockIdx.x] = val;
+    }
 }
 
 // ---------------- 以下是判测与计时，不要修改 ----------------
@@ -98,8 +156,12 @@ int main() {
                          h_partial, nblocks);
     float ms_c = run_one(reduce_contiguous, "contiguous ", d_in, d_out, h_out,
                          h_partial, nblocks);
+    float ms_o = run_one(reduce_optimization, "optimization", d_in, d_out, h_out,
+                        h_partial, nblocks);
     // 阈值 1.5x：A100 实测 2.22x、V100 实测 2.33x，两版写成一样时是 ~1x。
     float ratio = report_speedup("interleaved / contiguous", ms_i, ms_c, 1.5f,
+                                 "两版耗时几乎一样，检查是不是写成同一个实现了");
+    float ratio1 = report_speedup("contiguous / optimization", ms_c, ms_o, 1.5f,
                                  "两版耗时几乎一样，检查是不是写成同一个实现了");
 
     char metrics[192];
