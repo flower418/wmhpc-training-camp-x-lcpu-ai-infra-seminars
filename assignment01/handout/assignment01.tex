@@ -430,6 +430,9 @@ cd assignment01/cuda
 make run/m3_simt/03_reduce
 \end{lstlisting}
 
+\par\noindent\textit{回答：}二者的性能差距主要来自 warp 的 mask 机制。第一种会 mask 掉一半 的 thread，导致相同的计算量，前者会慢将近 2 倍。而后者每次执行计算的时候都是以整个 warp 为单位进行计算的，不存在 mask 问题，开销就会变小。还有一部分来自小于指令的开销小于计算取模\\
+
+
 \begin{lookback}
 SIMT 让你以单线程的风格编写并行代码，但它只承诺正确性语义，不负责性能语义。本模块的题目正好分别对应这层抽象漏出来的三个口子：warp 才是真实的调度单位（prob 3.2），block 内的并行需要显式同步才能看到彼此的写入（prob 3.3），而 block 之间压根没有提供同步方法（prob 3.4）。
 
