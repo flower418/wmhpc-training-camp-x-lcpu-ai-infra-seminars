@@ -382,8 +382,11 @@ Guide 2.3.1--2.3.2、1.2.2.2。3.3、3.5 要用 shared memory，用法见 Guide 
 设 \texttt{blockDim = (8, 8, 1)}。
 \begin{enumerate}[label=(\alph*)]
   \item \texttt{threadIdx = (3, 5, 0)} 的线性编号是多少？它在第几个 warp、warp 内第几个 lane？
+  \par\noindent\textit{回答：}线性编号是 43, 第 1 个 warp，第 11 个 lane
   \item 这个 block 一共占多少个 warp？
+  \par\noindent\textit{回答：}一共占 2 个 warp
   \item 若 \texttt{blockDim = (33, 1, 1)}，占几个 warp？这样配置浪费在哪里？
+  \par\noindent\textit{回答：}占 2 个 warp。这样的配置 浪费在第 1 个 warp 中只有 1 个 thread 可用，但是一整个 warp 都会被调度，寄存器也会被占用，产生浪费
 \end{enumerate}
 
 \prob{3.2}{EXPERIMENT}[cuda/m3\_simt/01\_divergence.cu]
@@ -395,6 +398,9 @@ make run/m3_simt/01_divergence
 \end{lstlisting}
 
 请解释实测比值，并回答——若两个分支的计算量一大一小，按 thread 编号奇偶分的 kernel 和按 warp 边界对齐分的 kernel 的运行时间分别由什么决定？
+\par\noindent\textit{回答：}按 warp 划分 thread 的会更快，大致会快 2 倍\\
+实测的比例是 1.96，也就是大约 2 倍。这是因为如果按奇偶划分的话，因为 kernel 在 GPU 上的执行是以 warp 为单位进行调度的。如果按奇偶分，每个 warp 里就会有一半的 thread 被 mask 掉，而第二个 kernel 中一个 warp 中的所有 thread 都能正常执行，所以大约会快 2 倍\\
+如果两个分枝的计算量一大一小，那按奇偶编号的运行时间由长分支与短分支之和决定，warp 边界划分的将由长分支决定
 
 \prob{3.3}{EXPERIMENT}[cuda/m3\_simt/02\_sync\_matters.cu]
 \texttt{02\_sync\_matters.cu} 让每个 block 用 shared memory 把自己的 256 个元素倒序。请按文件开头的注释内容进行实验。
@@ -405,9 +411,13 @@ make run/m3_simt/02_sync_matters
 \end{lstlisting}
 
 (a)~为什么注释掉 sync 后代码不能正确地运行？(b)~(Optional) 注释掉 sync 后，翻转后的数组错的位置比较随机，但是有些位置一直是对的，试解释原因。（tip: 算一算 $t$ 与 $255-t$ 有没有可能落在同一个 warp）
+\par\noindent\textit{回答：}(a)因为读和写之间存在数据竞争。thread 先把数据放进 shared memory 中，需要等到 thread 全部写完才能正常倒序。但是如果不进行 sync 就直接写的话，由于 warp 的乱序执行，并不能保证需要反转的数据已经被 thread 写好，发生 UB，所以程序出错\\
+(b)因为第 $t$ 个 thread 和第 $256 - t$ 个 thread 永远不在同一个 warp，所以执行的正确与否只依赖第 $i$ 个和第 $7 - i$  个 warp 的调度顺序。如果是前面的先调度，那就会读到未初始化的值，如果是后面的先调度，那前面的结果就是正确的。所以有些位置一直是正确的。
+
 
 \prob{3.4}{CONCEPT}
 \texttt{\_\_syncthreads} 只能同步本 block 内的 threads，那需要全 grid 同步时，标准做法是什么？
+\par\noindent\textit{回答：}kernel 分割，将大的 kernel 拆分成多个小的 kernel，让每个 kernel 开始于需要同步的地方，这样就能自动同步。或者直接使用 cooperative\_group 直接进行全 grid 的同步\\
 
 \begin{capstone}{prob 3.5（FROM-SCRATCH）：block 内归约 \hfill {\footnotesize\ttfamily cuda/m3\_simt/03\_reduce.cu}}
 在 \texttt{03\_reduce.cu} 里从零实现两个求和归约 kernel（判测与计时的代码已经写好）。两个 kernel 的 contract 见文件头。PASS 后，试解释实测性能差距的原因。
