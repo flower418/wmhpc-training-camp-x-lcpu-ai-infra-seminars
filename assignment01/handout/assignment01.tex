@@ -146,12 +146,12 @@ make run/m0_env/02_device_query
 \toprule
 项目 & 你的卡 \\
 \midrule
-型号 / compute capability & NVIDIA GeForce RTX 4090/8.9\\
-SM 数量 & 128\\
+型号 / compute capability & NVIDIA GeForce RTX 5090/12.0\\
+SM 数量 & 170\\
 warp 大小 & 32\\
 shared memory / block & 101376\\
 最大常驻线程 / SM & 1536\\
-显存总量 & 25386352640\\
+显存总量 & 33668857856\\
 最大线程 / block & 1024\\
 \bottomrule
 \end{tabular}
@@ -459,11 +459,11 @@ Guide 2.3.3--2.3.5、2.3.7、1.2.3。
 空间 & 谁可见 & 生命周期 & 片上 / 片外 & 谁管理 \\
 \midrule
 register & 单个线程 & 线程 & 片上 & 编译器 \\
-local &  &  &  &  \\
-shared &  &  &  &  \\
-global &  &  &  &  \\
-constant &  &  &  &  \\
-L1 / L2 cache &  &  &  &  \\
+local & 单个线程 & 线程 & 片外 & 编译器 \\
+shared & 整个 block & block & 片上 & 程序员 \\
+global & grid 中全部 thread & application & 片外 & 程序员 \\
+constant & grid 中全部 thread & application & 片外 & 程序员 \\
+L1 / L2 cache & / & 硬件管理 & 片上 & 硬件管理 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -485,12 +485,17 @@ make run/m4_memory/02_constant_coeff
 \end{lstlisting}
 
 结果会包含两个版本的耗时（差距可能极小，甚至测不出来性能收益——想想为什么），回答 constant cache 真正的优势在哪种访问模式。
+\par\noindent\textit{回答：}因为系数仅有 8 个，占 32 字节，而 GPU 的最小缓存是 128 字节，所以一次缓存能把这 8 个系数全部放入 L2 Cache，GPU 在读取时相比 constant cache 的优势基本没有\\
+如果需要访问的系数表很大，L2 Cache 需要反复更新时，由于读取 global memory 的速度远慢于读取 constant cache，此时会有较大的性能提升
+
 
 \prob{4.4}{CONCEPT}
 判断对错，可以顺带补一句理由。
 \begin{enumerate}[label=(\alph*)]
   \item local memory 的“local”指作用域私有，它实际上在片外显存里。
+  \par\noindent\textit{回答：}正确。local memory 属于每个 thread 私有的，但他放在 GPU 上，而不是 SM 中
   \item 对数组用运行期才知道的下标做索引，可能迫使它被放进 local memory。
+  \par\noindent\textit{回答：}正确。通常情况下，如果用运行时的下标做索引，编译器就不知道要把什么存进寄存器，只能正常地处理数组然后读数，会放入 local memory。但是如果有一些激进优化，就会通过预测把数据存入寄存器，而不是 local memory
 \end{enumerate}
 
 \prob{4.5}{FILL-IN}[cuda/m4\_memory/03\_histogram.cu]
@@ -510,6 +515,8 @@ make run/m4_memory/04_histogram_priv
 \end{lstlisting}
 
 测试结果包含与 naive 实现相比较的耗时、吞吐。试解释提速来自哪里。
+\par\noindent\textit{回答：}我的私有化实现相比 naive 版，在 5090 上快了 114.96x，吞吐高了 115x。\\
+提速主要来自吞吐的大幅提升。naive 版本中全 grid 的 thread 都在竞争数据，很容易导致 atomicAdd 串行，降低效率。而私有化版本先在每个 block 内部进行统计，统计结束后只需要根据统计好的结果再做一次 atomicAdd，大幅度减小了 data race 的比例，所以性能显著提高
 
 \prob{4.7}{EXPERIMENT}[cuda/m4\_memory/05\_bandwidth.cu]
 运行实验，并根据实验数据填表。
@@ -526,10 +533,13 @@ make run/m4_memory/05_bandwidth
 \toprule
 stride & 1 & 2 & 4 & 8 & 16 & 32 \\
 \midrule
-GB/s & & & & & & \\
+GB/s & 1891.2 & 1196.1 & 714.9 & 520.6 & 1621.0 & 860.1\\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\par\noindent\textit{回答：}趋势是随着 stride 倍增，吞吐不断下降，当 stride 到 16 时，吞吐又上升到一个较高峰，然后吞吐再次下降\\
+stride 小于 16 时下降，是因为 GPU 读取数据时，是以整个 warp 为单位读取的，stride 等于 1，一下能读取 128 字节，刚好放进一个缓存行，合并访存，效率最高。然后访存效率不断下降。同时由于读 + 写的内存大于 72 MB，而 72 MB 是实际 L2 Cache 的大小，所以 stride 为 8 时带宽很小。当 stride 为 16 时，读 4 MB 加上写 64 MB，刚好能放入 L2 Cache，所以速率有了大幅提高。但是 stride 为 32 时，又出现了一行只能存一个 float，带宽过小，于是再次下降
 
 \prob{4.8}{EXPERIMENT}[cuda/m4\_memory/06\_occupancy.cu]
 \texttt{06\_occupancy.cu}，详细内容见相关文件。实验命令如下：
@@ -544,15 +554,18 @@ make run/m4_memory/06_occupancy
 \begin{center}\small
 \begin{tabular}{@{}lcccccc@{}}
 \toprule
-shared memory / block (KB) & & & & & & \\
-理论驻留 block / SM & & & & & & \\
-occupancy & & & & & & \\
-实测带宽 (GB/s) & & & & & & \\
+shared memory / block (KB) & 0.0 & 13.2 & 15.0 & 18.0 & 29.0 & 55.0\\
+理论驻留 block / SM & 6 & 6 & 6 & 5 & 3 & 1\\
+occupancy & 100.0\% & 100.0\% & 100.0\% & 83.3\% & 50.0\% & 16.7\%\\
+实测带宽 (GB/s) & 1572.4 & 1576.0 & 1575.5 & 1576.7 & 1591.7 & 817.8 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 请回答：(a)~用程序开头打印的“shared memory / SM”和“最大常驻线程 / SM”，手算其中一个的驻留 block 数和 occupancy，和 API 的结果对照。(b)~带宽为什么随 occupancy 下降？用“延迟隐藏需要足够多的常驻 warp”组织你的解释。(c)~表中带宽随 occupancy 单调下降，但明显不成正比——从 100\% 到 75\% 带宽掉了多少？从 37.5\% 到 12.5\% 又掉了多少？试解释这个差别。
+\par\noindent\textit{回答：}(a)5090 的 shared memory 为 100 K，每个 SM 的最大常驻线程为 1536。而 block 中有 256 个 thread，所以理论上每个 SM 中最多存在 6 个 block，也就是 48 个 warp。以给 block 分配 18.0 KB 为例，此时用 100 除以 18，得到 5.55，向下取整，也就是每个 SM 上放 5 个 block，40 个 warp，occupancy 为 83.3\% \\
+(b)因为 GPU 隐藏延迟需要有足够多的常驻 warp，这样当一个 warp 去执行延迟较高的访存等指令时，就可以由其他的常驻 warp 继续请求，或者进行计算，打满带宽。当 occupancy 下降时，SM 中的常驻 warp 下降，导致当一些 warp 请求时陷入等待，没有空闲的 warp 继续请求，导致带宽没有打满，效率下降\\
+(c)100\% 到 50\% 带宽基本保持不变，当 occupancy 从 50\% 到 16.7\% 带宽发生大幅下降。这是因为 100 到 50 基本保持一个平台期，带宽基本达到理论上限，即使是 50 的 occupancy，在 SM 上常驻的 warp 也足以打满带宽，不需要多余的空闲 warp 进行补充。而 occupancy 下降到 16 之后，没有空闲的 warp 持续发起请求，而陷入漫长的等待，导致带宽大幅降低\\
 
 \begin{lookback}
 本模块的八道题围绕同一个问题展开：数据放在哪一层，以什么模式去取。prob 4.1 给出一幅静态的存储层次地图，prob 4.2 与 4.3 在同一段 stencil 上切换存储位置，prob 4.5 与 4.6 在同一个直方图统计上做同样的变换，prob 4.7 和 4.8 则分别量化访问模式与可并发的请求数量。
