@@ -7,7 +7,7 @@
 __global__ void strided_copy(const float *in, float *out, int n, int stride) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) {
-        int j = (long)i * stride & (n - 1);
+        int j = (long)i * stride & (n - 1); // 等价于 %n i*stride % n
         out[i] = in[j];
     }
 }

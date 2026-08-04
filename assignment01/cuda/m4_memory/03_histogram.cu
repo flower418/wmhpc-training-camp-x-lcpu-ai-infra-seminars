@@ -2,7 +2,10 @@
 // 统计 16M 个字节的值落在 256 个 bucket 里的次数。
 // 注意：多个线程可能同时修改同一个 bucket 的值。
 #include "common.h"
+#include <cuda/atomic>
 
+// 这个 kernel 用来统计 data 中的数据落在每个 bucket 的个数
+// 其中 data 中的数据为 0-255
 __global__ void histogram(const unsigned char *data, unsigned int *hist, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
@@ -10,7 +13,8 @@ __global__ void histogram(const unsigned char *data, unsigned int *hist, int n) 
         unsigned char v = data[i];
         // ====== 空 1：往 hist[v] 里加 1
         //         该用哪个原子操作？ ======
-        /* 填这里 */;
+        cuda::atomic_ref<unsigned int, cuda::thread_scope_device> hist_ref(hist[v]);
+        hist_ref.fetch_add(1);
     }
 }
 
