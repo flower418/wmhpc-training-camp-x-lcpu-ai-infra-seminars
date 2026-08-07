@@ -592,13 +592,18 @@ make run/m5_async/01_timing_trap
 
 并回答下列问题：
 (a)~哪个数值可以当作 kernel 耗时写进报告？(b)~另外两个各具体测的是什么？
+\par\noindent\textit{回答：}(a)cudaEvent 计时可以当作 kernel 耗时\\
+(b)host 计时不等 GPU 测的是 launch 一个 kernel 所需的时间，由于 kernel 的执行与 CPU 异步，所以 launch 以后就会自动返回，继续执行。host 计时等 GPu，测的是 launch 一个 kernel 加上 kernel 执行的时间\\
 
 \prob{5.2}{CONCEPT}
 判断对错，可以顺带补一句理由。
 \begin{enumerate}[label=(\alph*)]
   \item 同一个 stream 里的操作按提交顺序执行。
+  \par\noindent\textit{回答：}正确。在同一个 stream 中按顺序执行，不同 stream 的执行顺序受 GPU 调度，但不保证
   \item kernel 启动后，host 代码立刻继续往下执行。
+  \par\noindent\textit{回答：}正确。host 代码与 kernel 代码是异步的，当 kernel launch 后，继续往下执行 host 代码
   \item unified memory 下，CPU 访问一页正被 GPU 占用的内存，会触发缺页与页迁移。
+  \par\noindent\textit{回答：}错误。这个依赖于硬件的 cudaDevAttrDirectManagedMemAccessFromHost 属性。如果硬件是软件一致性系统，那么 CPU 访问正在被 GPU 占用的内存，就会发生缺页；如果是硬件一致性系统，那 CPU 可以直接访问 GPU 上驻留的内存，不会发生迁移
 \end{enumerate}
 
 \begin{lookback}
@@ -620,8 +625,11 @@ Guide 1.2.2.3（必读，篇幅不长）、2.4.1--2.4.6（浏览）、2.2（知�
 判断对错，可以顺带补一句理由。
 \begin{enumerate}[label=(\alph*)]
   \item tile 是显存里的一块可变区域，kernel 通过指针直接改写它。
+  \par\noindent\textit{回答：}错误。tile 是显存里的一块不可变的区域，kernel 中对 tile 的改写都会产生一个新 tile，而不是原 tile 的改变
   \item 对 tile 的一次运算（如两个 tile 相加）由编译器映射到 block 内的多个线程上执行。
+  \par\noindent\textit{回答：}正确。tile 是比 simt 更高的一种层次，表面上是两个 tile 相加，实际上由编译器内部决定哪些 thread 进行计算
   \item tile 模型与 SIMT 模型互斥，一个 CUDA 程序只能选一种。
+  \par\noindent\textit{回答：}错误。tile 模型 与 SIMT 模型共存。SIMT 提供了更细的粒度，tile 提供了更高的层次
 \end{enumerate}
 
 \prob{6.2}{CONCEPT}
@@ -649,16 +657,18 @@ def vec_add(a, b, c, TILE: ct.Constant[int]):
 \toprule
  & CUDA SIMT & cuTile & Triton \\
 \midrule
-并行单位 & block 里的 thread & block & \\
-编号 & \texttt{blockIdx} / \texttt{threadIdx} &  & \\
-数据分工 & 线程用全局下标来划分数据 &  & \\
-边界处理 & \texttt{if} 判断 &  & \\
+并行单位 & block 里的 thread & tile block & \\
+编号 & \texttt{blockIdx}/\texttt{threadIdx} & \texttt{bid} & \\
+数据分工 & 线程用全局下标来划分数据 & tile block 用 bid 来划分数据 & \\
+边界处理 & \texttt{if} 判断 & 由编译器自动判断，先根据 TILE 大小划分，超出边界的由编译器处理，比如把超出边界的 mask 掉，防止异常访存 & \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \prob{6.3}{CONCEPT}
 仍看上面这段代码。(a)~“每个线程对应哪个/些元素”由谁决定？(b)~列出一些在 CUDA SIMT 版向量加法里一定会出现、这里完全没体现出的概念。
+\par\noindent\textit{回答：}(a)每个 tile 对应哪些元素块由 bid 决定，每个 tile 中的 thread 对应哪些元素由编译器决定\\
+(b)边界条件判断，计算 thread 的全局索引，每个 thread 的分工\\
 
 \begin{lookback}
 tile 并非某个 DSL 的发明。NVIDIA 自己把它与 SIMT 并列写进了 Guide 正文，这本身就说明它是一类稳定的编程方式，而不是一次工具选型。
@@ -695,6 +705,7 @@ uv run pytest tests/test_fused_op.py
 \end{lstlisting}
 
 改完回答——与 Module 2 里改 CUDA kernel 相比，这次的改动主要集中在 kernel 的什么部分？主体代码为什么一行都不用动？
+\par\noindent\textit{回答：}主要集中在 kernel 的参数上，因为主体代码基本没有任何变化，只是加了一个常数和 relu
 
 \prob{7.3}{FILL-IN}[kernels/tilelang\_scale\_add.py]
 请填空：\texttt{kernels/tilelang\_scale\_add.py} ，具体要求见代码注释。测试命令：
@@ -714,6 +725,7 @@ uv run pytest tests/test_tilelang.py -k copy2d
 \end{lstlisting}
 
 填完想一想：2.6 的四个空——行号、列号、边界保护、grid 尺寸——哪些在这里还有对应？没有对应的那个去哪了？
+\par\noindent\textit{回答：}行号，列号，grid 尺寸都还有对应，没有了边界保护，由编译器自动做边界保护
 
 \prob{7.5}{CONCEPT}
 补全下表，每个空填“用户”或“编译器”（二者都涉及的要写清楚各自的范围）。
@@ -723,10 +735,10 @@ uv run pytest tests/test_tilelang.py -k copy2d
 \toprule
 谁负责 & CUDA SIMT & cuTile & Triton & TileLang \\
 \midrule
-线程到数据的映射 & 用户 & & & \\
-边界处理 & 用户 & & & \\
-tile / block 尺寸的选择 & 用户 & & & \\
-block 内同步 & 用户 & & & \\
+线程到数据的映射 & 用户 & 编译器 & 编译器 & 编译器\\
+边界处理 & 用户 & 用户 & 用户 & 编译器\\
+tile / block 尺寸的选择 & 用户 & 用户 & 用户 & 用户\\
+block 内同步 & 用户 & 编译器 & 编译器 & 编译器\\
 \bottomrule
 \end{tabular}
 \end{center}
