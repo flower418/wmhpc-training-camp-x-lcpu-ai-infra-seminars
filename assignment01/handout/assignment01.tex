@@ -789,9 +789,13 @@ Guide 1.3 全章（必读）、2.1.1、2.7（浏览）。
 判断对错，可以顺带补一句理由。
 \begin{enumerate}[label=(\alph*)]
   \item PTX 是 GPU 直接执行的机器码。
+  \par\noindent\textit{回答：}错误。PTX 是中间表示，不是机器码，可直接执行的机器码是 SASS
   \item 只嵌入了 \texttt{sm\_70} SASS 的可执行文件，能在 compute capability 9.0 的卡上运行。
+  \par\noindent\textit{回答：}错误。只能在 7.x 上跑
   \item 一个 fatbin 可以同时携带多个架构的 SASS 和 PTX。
+  \par\noindent\textit{回答：}正确。
   \item JIT 编译由驱动在运行时完成。
+  \par\noindent\textit{回答：}
 \end{enumerate}
 
 \prob[Optional]{8.2}{EXPERIMENT}[cuda/m0\_env/01\_hello.cu]
