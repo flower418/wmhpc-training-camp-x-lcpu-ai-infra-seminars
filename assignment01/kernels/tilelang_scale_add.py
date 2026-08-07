@@ -17,13 +17,13 @@ def make_scale_add(M, N, block_M=32, block_N=32, dtype="float32"):
     ):
         # ====== 空 1：二维 CTA grid——x 方向要多少个 block（管 N 列），
         #         y 方向要多少个（管 M 行）？提示：T.ceildiv ======
-        with T.Kernel(..., ..., threads=128) as (bx, by):
+        with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=128) as (bx, by): # 先是 x 的一整列，然后是 y 的一整行
             # ====== 空 2：block 内并行遍历 tile 的每个元素，
             #         提示：T.Parallel(维度1, 维度2) ======
-            for i, j in ...:
-                gi = by * block_M + i
-                gj = bx * block_N + j
-                if gi < M and gj < N:
-                    Y[gi, gj] = X[gi, gj] * 2.0 + 1.0
+            for i, j in T.Parallel(block_N, block_M):
+                gi = bx * block_N + i
+                gj = by * block_M + j
+                if gi < N and gj < M:
+                    Y[gj, gi] = X[gj, gi] * 2.0 + 1.0
 
     return scale_add
